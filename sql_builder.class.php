@@ -918,9 +918,22 @@
     //         ->columns(['a' => 'hello ', 'b' => 'test ', 'c' => ' 123 ']);
     // print $sql . "\n";
 
+    /**
+     * Database
+     */
     class Database
     {
+        /**
+         * _connection
+         *
+         * @var array
+         */
         private $_connection = [];
+        /**
+         * type
+         *
+         * @var bool
+         */
         private $type = false;
         private static $_cached_instance = [];
 
@@ -928,6 +941,12 @@
         const GETID = 2;
         const RESULTSET = 3;
 
+        /**
+         * __construct
+         *
+         * @param  mixed $type
+         * @return void
+         */
         protected function __construct($type)
         {
             // class correct method as database driver selected in config file
@@ -949,6 +968,11 @@
             $this->stats['num_changes'] = 0;
         }
 
+        /**
+         * __destruct
+         *
+         * @return void
+         */
         public function __destruct()
         {
             if ($this->isConnected() === true) {
@@ -956,6 +980,11 @@
             }
         }
 
+        /**
+         * isConnected
+         *
+         * @return void
+         */
         public function isConnected()
         {
             // echo 'type is ' . $this->type . "\n";
@@ -965,6 +994,12 @@
             return true;
         }
 
+        /**
+         * connect
+         *
+         * @param  mixed $type
+         * @return void
+         */
         public static function connect($type)
         {
             // this basically returns a cached instance object
@@ -976,6 +1011,13 @@
             return self::$_cached_instance[$type];
         }
 
+        /**
+         * query
+         *
+         * @param  mixed $query
+         * @param  mixed $return_type
+         * @return void
+         */
         public function query($query, $return_type = self::RESULTSET)
         {
             if ($this->isConnected() === false) {
@@ -994,6 +1036,7 @@
             }
 
             print $query . "\n";
+            // die;
             // TODO: some stats calculation for each query
             $result = mysqli_query($this->_connection[$this->type]['id'], $query);
             switch($return_type) {
@@ -1007,235 +1050,566 @@
             }
         }
 
+        /**
+         * error
+         *
+         * @param  mixed $error_message
+         * @return void
+         */
         public function error($error_message)
         {
         }
     }
 
-    class QueryResultSet implements \Iterator
+    /**
+     * QueryResultSet
+     * ORDER OF METHODS THAT GET EXECUTED
+     * REWIND()     One executes the query here only once
+     * NEXT()
+     * VALID()
+     * CURRENT()    Fetches the current row
+     */
+    class QueryResult implements \Iterator, \Countable, \ArrayAccess
     {
-        protected $model = false;
-        protected $arguments = [];
+        /**
+         * parent
+         *
+         * @var bool
+         */
+        public $parent = false;
+        /**
+         * results
+         *
+         * @var bool
+         */
         protected $results = false;
+        /**
+         * position
+         *
+         * @var int
+         */
         protected $position = 0;
-        protected $loaded = false;
 
-        public function __construct($model)
+        /**
+         * __construct
+         *
+         * @param  mixed $parent
+         * @return void
+         */
+        public function __construct($parent)
         {
-            error_log(__METHOD__.'@'.__LINE__);
-            $this->model = $model;
-        }
-
-        function current()
-        {
-            // fetch the current row from the database
-            error_log(__METHOD__.'@'.__LINE__);
-            // this can be different fetch_row() for index values
-            $row = $this->results->fetch_assoc();
-            $class = $this->model;
-            return new $class($row);
-        }
-
-        function get($expression)
-        {
-            error_log(__METHOD__.'@'.__LINE__);
-            // print_r($expression);
-            $argument = array_shift($expression);
-            // print_r($argument);
-
-            $class = $this->model;
-            if (!is_array($argument)) {
-                // we have a single value so search by primary key ?
-                $id_field = $class::getIdField();
-                // print_r($id_field);
-                $expression = [$id_field, '=', $argument];
-            }
-            $sql = Sql_builder::select($class::getTableName())
-                    ->where($expression);
-            // TODO: should get fields depending on the arguments passed
-                    // ->columns('firstName, lastName, EmployeeID, City, BirthDate, Title, Address, City');
-
-
-            // print $sql . "\n";
-            $db = $class::getDataBaseConnection();
-            $this->results = $db->query($sql);
-
-            $class = $this->model;
-            $row = $this->results->fetch_assoc();
-            // print_r($row);
-            return new $class($row);
+            Debug::debug(__METHOD__.'@'.__LINE__);
+            $this->parent = $parent;
         }
 
         /**
+         * __destruct
+         *
+         * @return void
+         */
+        public function __destruct()
+        {
+            if ($this->results) {
+                $this->results->free();
+                $this->results = false;
+            }
+        }
+
+        /**
+         * current
+         *
+         * @return void
+         */
+        public function current()
+        {
+            // fetch the current row from the database
+            Debug::debug(__METHOD__.'@'.__LINE__);
+            if ($this->results) {
+                // this can be different fetch_row() for index values
+                $row = $this->results->fetch_assoc();
+                $class = $this->parent->model;
+                // echo 'new class is ' . $class . "\n";
+                if (!empty($row) && is_array($row) && count($row)) {
+                    // we have a database row now load the object based on that data
+                    return new $class($row);
+                }
+            }
+        }
+
+        /**
+         * next
          * Get next position
          */
         function next()
         {
-            error_log(__METHOD__.'@'.__LINE__);
+            Debug::debug(__METHOD__.'@'.__LINE__);
+            // fetch the next record()
             $this->position++;
         }
 
         /**
+         * key
          * Get aktual key (=position)
+         * When iterating mysqli resultset this makes no sense.
          *
          * @return int
          */
         function key()
         {
-            error_log(__METHOD__.'@'.__LINE__);
+            Debug::debug(__METHOD__.'@'.__LINE__ . ' Position ' . $this->position);
             return $this->position;
         }
 
         /**
+         * valid
          * Is actual position valid?
          *
          * @return bool
          */
         function valid()
         {
-            error_log(__METHOD__.'@'.__LINE__);
+            // valid false means no records in the resultset()
+            Debug::debug(__METHOD__.'@'.__LINE__);
             if ($this->results !== false) {
                 if ($this->position < $this->results->num_rows) {
                     return true;
                 }
             }
+            $this->results->free();
+            $this->results = false;
             return false;
         }
 
         /**
-         * Return to first position
+         * rewind
+         * only called once
+         * Ideally execute the query here and return to first position
          */
         function rewind()
         {
-            error_log(__METHOD__.'@'.__LINE__);
+            Debug::debug(__METHOD__.'@'.__LINE__);
+            // this is the first method that gets called in Iterator
+            // we thus execute the query here instead of executing it on next()
             $this->position = 0;
 
-            $class = $this->model;
+            $class = $this->parent->model;
+            // TODO: We need to build the Query here
+            // We know what mappings we have for the $class
             $sql = Sql_builder::select($class::getTableName());
             // TODO: should get fields depending on the arguments passed
                     // ->columns('firstName, lastName, EmployeeID, City, BirthDate, Title, Address, City');
+            $wheres = $this->parent->getClauses();
+            if (is_array($wheres) && count($wheres)) {
+                $sql->where($wheres[0]);
+            }
 
-
-            // print $sql . "\n";
             $db = $class::getDataBaseConnection();
             $this->results = $db->query($sql);
         }
 
         // Countable methods
+        /**
+         * count
+         * Returns count of a given model
+         * @return void
+         */
         public function count()
         {
-            error_log(__METHOD__.'@'.__LINE__);
-            $class = $this->model;
+            Debug::debug(__METHOD__.'@'.__LINE__);
+            $class = $this->parent->model;
             $sql = Sql_builder::select($class::getTableName())
                     ->columns(['count(*)' => 'count']);
 
-            // print $sql . "\n";
+            $wheres = $this->parent->getClauses();
+            if (is_array($wheres) && count($wheres)) {
+                $sql->where($wheres[0]);
+            }
+
             $db = $class::getDataBaseConnection();
             $count = $db->query($sql, Database::COUNT);
             return $count;
         }
+
+        // ArrayAccess
+        /**
+         * offsetExists
+         *
+         * @param  mixed $offset
+         * @return void
+         */
+        public function offsetExists($offset)
+        {
+            Debug::debug(__METHOD__.'@'.__LINE__);
+        }
+
+        /**
+         * offsetGet
+         *
+         * @param  mixed $offset
+         * @return void
+         */
+        public function offsetGet($offset)
+        {
+            Debug::debug(__METHOD__.'@'.__LINE__);
+            $this->rewind();
+            return $this->current();
+        }
+
+        /**
+         * offsetSet
+         *
+         * @param  mixed $offset
+         * @param  mixed $value
+         * @return void
+         */
+        public function offsetSet($offset, $value)
+        {
+            Debug::debug(__METHOD__.'@'.__LINE__);
+        }
+
+        /**
+         * offsetUnset
+         *
+         * @param  mixed $offset
+         * @return void
+         */
+        public function offsetUnset($offset)
+        {
+            Debug::debug(__METHOD__.'@'.__LINE__);
+        }
     }
 
-    class Manager
+    /**
+     * QuerySet
+     */
+    class QuerySet implements \IteratorAggregate, \Countable, \ArrayAccess
     {
-        protected static $_cached_instance = [];
-        protected static $model_class = false;
+        public $model = false;
+        public $clauses = [];
 
-        public static function get($model_class)
+        /**
+         * __construct
+         *
+         * @param  mixed $model
+         * @return void
+         */
+        public function __construct($model)
         {
-            self::$model_class = $model_class;
+            Debug::debug(__METHOD__.'@'.__LINE__);
+            $this->model = $model;
+        }
 
-            // this basically returns a cached instance object
-            if (!isset(self::$_cached_instance[$model_class])) {
-                // we do not have a model object here so simply save the class model
-                // static is bound to the called class
-                self::$_cached_instance[$model_class] = new static($model_class);
+        // IteratorAggregate
+        /**
+         * getIterator
+         *
+         * @return void
+         */
+        public function getIterator()
+        {
+            Debug::debug(__METHOD__.'@'.__LINE__);
+            return new QueryResult($this);
+        }
+
+        /**
+         * get
+         *
+         * @param  mixed $args
+         * @return void
+         */
+        public function get($args)
+        {
+            Debug::debug(__METHOD__.'@'.__LINE__);
+        }
+
+        /**
+         * getClass
+         *
+         * @return void
+         */
+        public function getClass()
+        {
+            Debug::debug(__METHOD__.'@'.__LINE__);
+            return $this->model->getClass();
+        }
+
+        /**
+         * filterAnd
+         *
+         * @param  mixed $expression
+         * @return void
+         */
+        public function filterAnd($expression)
+        {
+            Debug::debug(__METHOD__.'@'.__LINE__);
+            $clone = clone $this;
+            if (is_array($expression) && count($expression)) {
+                $clone->clauses[] = $expression;
             }
-            return self::$_cached_instance[$model_class];
+            // since this has Countable interface
+            // run the count(*) query to get no. of models
+            if (sizeof($clone)) {
+                // This will try to return the first element
+                // offset since the query will have 1 result
+                // This triggers offsetGet($offset) which will return QueryResult
+                return $clone[0];
+                // return new QueryResult($clone);
+            }
+            // TODO: Throw Error ?
         }
 
-        public function find(...$expression)
+        /**
+         * getClauses
+         *
+         * @return void
+         */
+        public function getClauses()
         {
-            error_log(__METHOD__.'@'.__LINE__);
-            return $this->getQuerySet(self::$model_class)->get($expression);
+            Debug::debug(__METHOD__.'@'.__LINE__);
+            return $this->clauses;
         }
 
-        public function getQuerySet($model)
-        {
-            error_log(__METHOD__.'@'.__LINE__);
-            return new QueryResultSet($model);
-        }
-
+        /**
+         * count
+         *
+         * @return void
+         */
         public function count()
         {
-            error_log(__METHOD__.'@'.__LINE__);
-            return $this->getQuerySet(self::$model_class)->count();
+            Debug::debug(__METHOD__.'@'.__LINE__);
+            return sizeof($this->getIterator());
         }
 
-        public function findAll()
+        // ArrayAccess
+        /**
+         * offsetExists
+         *
+         * @param  mixed $offset
+         * @return void
+         */
+        public function offsetExists($offset)
         {
-            error_log(__METHOD__.'@'.__LINE__);
-            return $this->getQuerySet(self::$model_class);
+            Debug::debug(__METHOD__.'@'.__LINE__);
+        }
+
+        /**
+         * offsetGet
+         *
+         * @param  mixed $offset
+         * @return void
+         */
+        public function offsetGet($offset)
+        {
+            Debug::debug(__METHOD__.'@'.__LINE__);
+            return $this->getIterator()->offsetGet($offset);
+        }
+
+        /**
+         * offsetSet
+         *
+         * @param  mixed $offset
+         * @param  mixed $value
+         * @return void
+         */
+        public function offsetSet($offset, $value)
+        {
+            Debug::debug(__METHOD__.'@'.__LINE__);
+        }
+
+        /**
+         * offsetUnset
+         *
+         * @param  mixed $offset
+         * @return void
+         */
+        public function offsetUnset($offset)
+        {
+            Debug::debug(__METHOD__.'@'.__LINE__);
         }
     }
 
+    /**
+     * ModelQueryManager
+     */
+    class ModelQueryManager
+    {
+        public static $cachedModelInstance = NULL;
+        public $cachedQuerySet = NULL;
+        public $modelClass = NULL;
+
+        /**
+         * __construct
+         *
+         * @param  mixed $modelClass
+         * @return void
+         */
+        public function __construct($modelClass)
+        {
+            Debug::debug(__METHOD__.'@'.__LINE__);
+            $this->modelClass = $modelClass;
+        }
+
+        // Basically each function in SQL Builder will be considered here.
+        // orderBy/Limit/Offset/Count/ etc
+        /**
+         * get
+         *
+         * @param  mixed $modelClass
+         * @return void
+         */
+        public static function get($modelClass)
+        {
+            Debug::debug(__METHOD__.'@'.__LINE__);
+            // Each time we call this Manager we return the cached version and not create
+            // a new instance.
+            if (!isset(self::$cachedModelInstance[$modelClass])) {
+                // static is bound to the called class
+                self::$cachedModelInstance[$modelClass] = new static($modelClass);
+            }
+            return self::$cachedModelInstance[$modelClass];
+        }
+
+        /**
+         * findOne
+         *
+         * @param  mixed $expression
+         * @return void
+         */
+        public function findOne(...$expression)
+        {
+            Debug::debug(__METHOD__.'@'.__LINE__);
+            $argument = array_shift($expression);
+            if (!is_array($argument)) {
+                // we only have a integer value
+                // findOne(model_id)
+                $expression  = [$this->modelClass::getIdField(), '=', $argument];
+            }
+            // we send an expression
+            // ['column/field', 'operator', 'value']
+            return $this->getQuerySet()->filterAnd($expression);
+        }
+
+        /**
+         * findAll
+         *
+         * @return void
+         */
+        public function findAll()
+        {
+            Debug::debug(__METHOD__.'@'.__LINE__);
+            return $this->getQuerySet();
+        }
+
+        /**
+         * getQuerySet
+         *
+         * @return void
+         */
+        public function getQuerySet()
+        {
+            Debug::debug(__METHOD__.'@'.__LINE__);
+            // avoid creating multiple objects
+            // each filter / method call will create a new QuerySet instance
+            if (empty($this->cachedQuerySet)) {
+                // static is bound to the called class
+                $this->cachedQuerySet = new QuerySet($this->modelClass);
+            }
+            return $this->cachedQuerySet;
+        }
+
+        /**
+         * count
+         *
+         * @return void
+         */
+        public function count()
+        {
+            Debug::debug(__METHOD__.'@'.__LINE__);
+            return $this->getQuerySet($this->modelClass)->count();
+        }
+    }
+
+
     // namespace emnoshpro\Db\Orm_Object;
+    /**
+     * Orm_Object
+     */
     abstract class Orm_Object
     {
-        // protected $field_values = [];
-        // protected $modified_fields = [];
+        /**
+         * id
+         *
+         * @var bool
+         */
+        protected $id = false;
 
         // all SQL operations (UPDATE/INSERT/DELETE) on Model will be done by the object
+        /**
+         * __construct
+         *
+         * @return void
+         */
         public function __construct()
         {
             // TODO: probably we should support loading objects with both fetch_row()/fetch_assoc()
-            // error_log(__METHOD__.'@'.__LINE__);
+            Debug::debug(__METHOD__.'@'.__LINE__);
             $arg = func_get_args();
             $data = array_shift($arg);
 
             foreach (get_called_class()::fields() as $key => $field) {
                 $field_name = $field->getName();
+
+                if ($field->getType() === Field::ID) {
+                    $this->id = $data[$field_name];
+                }
+
                 if ($field->isForeignKey()) {
-                    // error_log('foreign key');
                     $model = $field->getClass($data[$field_name]);
-                    $model_name = $model::getTableName();
-                    $this->$model_name = $model;
+                    $modelTableName = $model::getTableName();
+                    $this->$modelTableName = $model;
                 }
                 $this->$field_name = $data[$field_name];
             }
         }
 
-        // public function __get($field)
-        // {
-        //     // error_log(__METHOD__.'@'.__LINE__);
-        //     return $this->get($field);
-        // }
+        /**
+         * delete
+         *
+         * @return void
+         */
+        public function delete()
+        {
+            if ($this->id) {
+                print_r($this);
+            }
+        }
+    }
 
-        // public function get($field)
-        // {
-        //     // error_log(__METHOD__.'@'.__LINE__);
-        //     return $this;
-        // }
+    class Debug
+    {
+        const DEBUG = false;
 
-        // public function __set($field, $value)
-        // {
-        //     // error_log(__METHOD__.'@'.__LINE__);
-        //     return $this->set($field, $value);
-        // }
-
-        // public function set($field, $value)
-        // {
-        //     // error_log(__METHOD__.'@'.__LINE__);
-        //     $this->field_values[$field] = $value;
-        //     if (!isset($this->modified_fields[$field])) {
-        //         $this->modified_fields[] = $field;
-        //     }
-        //     return $this;
-        // }
+        /**
+         * debug
+         *
+         * @param  mixed $string
+         * @return void
+         */
+        public static function debug($string)
+        {
+            if (self::DEBUG) {
+                error_log($string);
+            }
+        }
     }
 
     trait Shard
     {
+        /**
+         * getShardId
+         *
+         * @return void
+         */
         public function getShardId()
         {
             // return shard by id
@@ -1243,16 +1617,29 @@
         }
     }
 
+    /**
+     * Field
+     */
     class Field
     {
-        // protected $field_name = NULL;
-        // protected $counter = 0;
+        /**
+         * fields
+         *
+         * @var mixed
+         */
         protected $fields;
         const ID = 1;
 
+        /**
+         * __construct
+         *
+         * @param  mixed $field_name
+         * @param  mixed $model_callback
+         * @param  mixed $type
+         * @return void
+         */
         public function __construct($field_name, $model_callback = NULL, $type = NULL)
         {
-            // $this->field_name = $field_name;
             $this->fields[] = [
                 'name' => $field_name,
                 'connects_to' => $model_callback,
@@ -1260,54 +1647,92 @@
             ];
         }
 
+        /**
+         * addId
+         *
+         * @param  mixed $field_name
+         * @param  mixed $type
+         * @return void
+         */
         public static function addId($field_name, $type = self::ID)
         {
-            // error_log(__METHOD__.'@'.__LINE__);
+            Debug::debug(__METHOD__.'@'.__LINE__);
             return new Field($field_name, NULL, $type);
         }
 
+        /**
+         * addVarChar
+         *
+         * @param  mixed $field_name
+         * @return void
+         */
         public static function addVarChar($field_name)
         {
-            // error_log(__METHOD__.'@'.__LINE__);
+            Debug::debug(__METHOD__.'@'.__LINE__);
             return new Field($field_name);
         }
 
+        /**
+         * addForeignKey
+         *
+         * @param  mixed $field_name
+         * @param  mixed $model
+         * @return void
+         */
         public static function addForeignKey($field_name, $model)
         {
-            // error_log(__METHOD__.'@'.__LINE__);
+            Debug::debug(__METHOD__.'@'.__LINE__);
             return new Field($field_name, $model);
         }
 
+        /**
+         * getName
+         *
+         * @return void
+         */
         public function getName()
         {
-            // error_log(__METHOD__.'@'.__LINE__);
+            Debug::debug(__METHOD__.'@'.__LINE__);
             return $this->fields[0]['name'];
         }
 
+        /**
+         * isForeignKey
+         *
+         * @return void
+         */
         public function isForeignKey()
         {
-            // error_log(__METHOD__.'@'.__LINE__);
-            // print_r($this->fields);
+            Debug::debug(__METHOD__.'@'.__LINE__);
             if (!empty($this->fields[0]['connects_to'])) {
                 return true;
             }
         }
 
+        /**
+         * getClass
+         *
+         * @return void
+         */
         public function getClass()
         {
-            error_log(__METHOD__.'@'.__LINE__);
-            // print_r($this->fields);
+            Debug::debug(__METHOD__.'@'.__LINE__);
             if ($this->isForeignKey() === true) {
                 $argument = func_get_args();
                 $model_id = array_shift($argument);
-                // print_r($model_id);
-                // print_r($this->fields[0]['connects_to']);
+
                 $model = $this->fields[0]['connects_to'][0];
                 $method = $this->fields[0]['connects_to'][1];
-                return call_user_func(array($model, $method))->find($model_id);
+
+                return $model::$method()->findOne($model_id);
             }
         }
 
+        /**
+         * getType
+         *
+         * @return void
+         */
         public function getType()
         {
             return $this->fields[0]['type'];
@@ -1315,46 +1740,73 @@
     }
 
     // namespace emnoshpro\Db\Model;
+    /**
+     * Model
+     */
     abstract class Model extends Orm_Object
     {
         use Shard;
         // use Field;
 
         // foreign key / primary key constraints
+        /**
+         * objects
+         *
+         * @return void
+         */
         public static function objects()
         {
-            error_log(__METHOD__.'@'.__LINE__);
-            return Manager::get(get_called_class());
+            Debug::debug(__METHOD__.'@'.__LINE__);
+            return ModelQueryManager::get(get_called_class());
         }
 
+        /**
+         * getTableName
+         *
+         * @return void
+         */
         public static function getTableName()
         {
-            // return get_called_class();
             return str_replace(__NAMESPACE__ . '\\', '', get_called_class());
         }
 
+        /**
+         * getDataBaseConnection
+         *
+         * @return void
+         */
         public static function getDataBaseConnection()
         {
             $shard_id = self::getShardId();
-            // echo 'Shard ID is ' . $shard_id . "\n";
             return Database::connect($shard_id);
         }
 
+        /**
+         * getIdField
+         *
+         * @return void
+         */
         public static function getIdField()
         {
-            error_log(__METHOD__.'@'.__LINE__);
+            Debug::debug(__METHOD__.'@'.__LINE__);
             foreach (get_called_class()::fields() as $key => $field) {
-                // error_log('field type ' . $field->getType());
                 if ($field->getType() === Field::ID) {
-                    // error_log('found field type id');
                     return $field->getName();
                 }
             }
         }
     }
 
+    /**
+     * Employees
+     */
     class Employees extends Model
     {
+        /**
+         * fields
+         *
+         * @return void
+         */
         public static function fields()
         {
             return [
@@ -1365,8 +1817,16 @@
         }
     }
 
+    /**
+     * Customers
+     */
     class Customers extends Model
     {
+        /**
+         * fields
+         *
+         * @return void
+         */
         public static function fields()
         {
             return [
@@ -1378,8 +1838,16 @@
         }
     }
 
+    /**
+     * Orders
+     */
     class Orders extends Model
     {
+        /**
+         * fields
+         *
+         * @return void
+         */
         public static function fields()
         {
             return [
@@ -1399,7 +1867,10 @@
     // $user_count = Employees::objects()->count();
     // echo 'User count is ' . $user_count . "\n";
     // if ($user_count > 0) {
+    //     // $employee = Employees::objects()->findOne(1);
+    //     // print_r($employee);
     //     $employees = Employees::objects()->findAll();
+    //     // // print_r($employees);
     //     foreach ($employees as $employee) {
     //         echo "Printing Employee data \n";
     //         print_r($employee);
@@ -1419,12 +1890,12 @@
     $order_count = Orders::objects()->count();
     echo 'Order count is ' . $order_count . "\n";
     if ($order_count > 0) {
-        $orders = Orders::objects()->find(11077);
-        // $orders = Orders::objects()->findAll();
-        print_r($orders);
-        // foreach ($orders as $order) {
-        //     echo "Printing order data \n";
-        //     print_r($order);
-        //     echo "real: ".(memory_get_peak_usage(true)/1024/1024)." MiB\n\n";
-        // }
+        // $orders = Orders::objects()->find(11077);
+        $orders = Orders::objects()->findAll();
+        // print_r($orders);
+        foreach ($orders as $order) {
+            echo "Printing order data \n";
+            print_r($order);
+            echo "real: ".(memory_get_peak_usage(true)/1024/1024)." MiB\n\n";
+        }
     }
