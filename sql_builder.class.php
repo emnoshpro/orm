@@ -1252,6 +1252,23 @@
         {
             Debug::debug(__METHOD__.'@'.__LINE__);
             $this->rewind();
+            if ($offset) {
+                $this->position = $offset;
+                if ($this->results) {
+                    if ($this->valid()) {
+                        $this->results->data_seek($offset);
+                        $row = $this->results->fetch_assoc();
+                        $class = $this->parent->model;
+                        if (!empty($row) && is_array($row) && count($row)) {
+                            // we have a database row now load the object based on that data
+                            return new $class($row);
+                        }
+                    } else {
+                        // TODO: invalid range?
+                    }
+                }
+            }
+
             return $this->current();
         }
 
@@ -1317,9 +1334,20 @@
          * @param  mixed $args
          * @return void
          */
-        public function get($args)
+        public function get()
         {
             Debug::debug(__METHOD__.'@'.__LINE__);
+            $clone = clone $this;
+            // since this has Countable interface
+            // run the count(*) query to get no. of models
+            $number_of_records = sizeof($clone);
+            if ($number_of_records === 1) {
+                // This will try to return the first element
+                // offset since the query will have 1 result
+                // This triggers offsetGet($offset) which will return QueryResult
+                return $clone[0];
+            }
+            // TODO: Throw Error ?
         }
 
         /**
@@ -1342,20 +1370,12 @@
         public function filterAnd($expression)
         {
             Debug::debug(__METHOD__.'@'.__LINE__);
-            $clone = clone $this;
+            // $clone = clone $this;
             if (is_array($expression) && count($expression)) {
-                $clone->clauses[] = $expression;
+                $this->clauses[] = $expression;
             }
-            // since this has Countable interface
-            // run the count(*) query to get no. of models
-            if (sizeof($clone)) {
-                // This will try to return the first element
-                // offset since the query will have 1 result
-                // This triggers offsetGet($offset) which will return QueryResult
-                return $clone[0];
-                // return new QueryResult($clone);
-            }
-            // TODO: Throw Error ?
+            // We do not have to query yet
+            return $this;
         }
 
         /**
@@ -1565,6 +1585,8 @@
 
                 if ($field->isForeignKey()) {
                     $model = $field->getClass($data[$field_name]);
+                    // print_r($model);
+                    // print_r($model->model::getTableName());
                     $modelTableName = $model::getTableName();
                     $this->$modelTableName = $model;
                 }
@@ -1724,7 +1746,7 @@
                 $model = $this->fields[0]['connects_to'][0];
                 $method = $this->fields[0]['connects_to'][1];
 
-                return $model::$method()->findOne($model_id);
+                return $model::$method()->findOne($model_id)->get();
             }
         }
 
@@ -1874,6 +1896,7 @@
     //     foreach ($employees as $employee) {
     //         echo "Printing Employee data \n";
     //         print_r($employee);
+    //         echo "real: ".(memory_get_peak_usage(true)/1024/1024)." MiB\n\n";
     //     }
     // }
     // $customer_count = Customers::objects()->count();
@@ -1890,9 +1913,10 @@
     $order_count = Orders::objects()->count();
     echo 'Order count is ' . $order_count . "\n";
     if ($order_count > 0) {
-        // $orders = Orders::objects()->find(11077);
+        // $orders = Orders::objects()->findOne(11077);
         $orders = Orders::objects()->findAll();
-        // print_r($orders);
+        // print_r(count($orders));
+        // print_r($orders[25]);
         foreach ($orders as $order) {
             echo "Printing order data \n";
             print_r($order);
